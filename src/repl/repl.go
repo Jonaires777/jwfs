@@ -22,6 +22,11 @@ func Start() {
 		}
 
 		line := scanner.Text()
+
+		if line == "exit" {
+			os.Exit(0)
+		}
+
 		l := lexer.New(line)
 		p := parser.New(l)
 
