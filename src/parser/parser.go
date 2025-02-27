@@ -42,6 +42,8 @@ func (p *Parser) ParseCommand() string {
 		return p.parseRead()
 	case token.CONCAT:
 		return p.parseConcat()
+	case token.HELP:
+		return p.parseHelp()
 	default:
 		return "Unknown Command"
 	}
@@ -182,4 +184,17 @@ func (p *Parser) parseConcat() string {
 	}
 
 	return fmt.Sprintf("Arquivos '%s' e '%s' concatenados com sucesso", filename1, filename2)
+}
+
+func (p *Parser) parseHelp() string {
+	return `
+Use os seguintes comandos para interagir com o sistema de arquivos:
+create <filename> <size> - criar um novo arquivo com o tamanho fornecido
+remove <filename> - remover um arquivo
+list - listar todos os arquivos
+order <filename> - ordenar um arquivo
+read <filename> <startIdx> <endIdx> - ler um arquivo
+concat <filename1> <filename2> <newFile> - concatenar dois arquivos em um novo arquivo
+exit - sair do programa
+`
 }

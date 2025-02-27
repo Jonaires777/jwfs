@@ -22,6 +22,7 @@ const (
 	ORDER  = "ORDER"
 	READ   = "READ"
 	CONCAT = "CONCAT"
+	HELP   = "HELP"
 )
 
 var keywords = map[string]TokenType{
@@ -31,6 +32,7 @@ var keywords = map[string]TokenType{
 	"order":  ORDER,
 	"read":   READ,
 	"concat": CONCAT,
+	"help":   HELP,
 }
 
 type TokenType string
