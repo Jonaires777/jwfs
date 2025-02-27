@@ -41,7 +41,7 @@ func (p *Parser) ParseCommand() string {
 	case token.READ:
 		return p.parseRead()
 	case token.CONCAT:
-		return "CONCAT command recognised"
+		return p.parseConcat()
 	default:
 		return "Unknown Command"
 	}
@@ -135,7 +135,7 @@ func (p *Parser) parseRead() string {
 		return fmt.Sprintf("Erro ao ler o arquivo: %v", err)
 	}
 
-	return fmt.Sprintf("Conteúdo do arquivo '%s': %v", filename, data)
+	return fmt.Sprintf("Conteúdo do arquivo '%s':\n %v", filename, data)
 }
 
 func (p *Parser) parseOrder() string {
@@ -146,10 +146,40 @@ func (p *Parser) parseOrder() string {
 
 	filename := p.currToken.Literal
 
-	err := filemanager.OrderFile(filename)
+	duration, err := filemanager.OrderFile(filename)
 	if err != nil {
 		return fmt.Sprintf("Erro ao ordenar o arquivo: %v", err)
 	}
 
-	return fmt.Sprintf("Arquivo '%s' ordenado com sucesso", filename)
+	return fmt.Sprintf("Arquivo '%s' ordenado com sucesso\nTempo em ordenação: %dms", filename, duration)
+}
+
+func (p *Parser) parseConcat() string {
+	p.nextToken()
+	if p.currToken.Type != token.IDENT {
+		return "Erro: esperado um nome de arquivo após concat"
+	}
+
+	filename1 := p.currToken.Literal
+
+	p.nextToken()
+	if p.currToken.Type != token.IDENT {
+		return "Erro: esperado um nome de arquivo após o primeiro nome"
+	}
+
+	filename2 := p.currToken.Literal
+
+	p.nextToken()
+	if p.currToken.Type != token.IDENT {
+		return "Erro: esperado um nome de arquivo após o segundo nome"
+	}
+
+	newFilename := p.currToken.Literal
+
+	err := filemanager.ConcatFiles(filename1, filename2, newFilename)
+	if err != nil {
+		return fmt.Sprintf("Erro ao concatenar os arquivos: %v", err)
+	}
+
+	return fmt.Sprintf("Arquivos '%s' e '%s' concatenados com sucesso", filename1, filename2)
 }

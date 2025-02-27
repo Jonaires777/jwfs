@@ -7,6 +7,7 @@ import (
 	"math/rand"
 	"os"
 	"sort"
+	"time"
 
 	"github.com/Jonaires777/src/constants"
 )
@@ -302,10 +303,10 @@ func ReadFile(filename string, startIdx, endIdx int64) ([]int32, error) {
 	return nil, errors.New("arquivo não encontrado")
 }
 
-func OrderFile(filename string) error {
+func OrderFile(filename string) (time.Duration, error) {
 	disk, err := os.OpenFile(constants.VirtualDisk, os.O_RDWR, 0666)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	defer disk.Close()
 
@@ -326,14 +327,24 @@ func OrderFile(filename string) error {
 					data := make([]byte, 4)
 					_, err := disk.ReadAt(data, offset)
 					if err != nil {
-						return err
+						return 0, err
 					}
 					numbers = append(numbers, int32(binary.LittleEndian.Uint32(data)))
 				}
 
-				sort.Slice(numbers, func(i2, j int) bool {
-					return numbers[i] < numbers[j]
-				})
+				intNumbers := make([]int, len(numbers))
+				for i, num := range numbers {
+					intNumbers[i] = int(num)
+				}
+
+				startTime := time.Now()
+
+				sort.Ints(intNumbers)
+				for i, num := range intNumbers {
+					numbers[i] = int32(num)
+				}
+
+				elapsedTime := time.Since(startTime)
 
 				for i, num := range numbers {
 					offset := inode.StartBlock + int64(i)*4
@@ -341,16 +352,128 @@ func OrderFile(filename string) error {
 					binary.LittleEndian.PutUint32(data, uint32(num))
 					_, err := disk.WriteAt(data, offset)
 					if err != nil {
-						return err
+						return 0, err
 					}
 				}
 
-				return nil
+				return elapsedTime, nil
 			}
 		}
 	}
 
-	return errors.New("arquivo não encontrado")
+	return 0, errors.New("arquivo não encontrado")
+}
+
+func ConcatFiles(filename1, filename2, newFilename string) error {
+	disk, err := os.OpenFile(constants.VirtualDisk, os.O_RDWR, 0666)
+	if err != nil {
+		return err
+	}
+	defer disk.Close()
+
+	buffer := make([]byte, constants.InodeSize)
+	var inode1, inode2 Inode
+	for i := int64(0); i < constants.MaxInodes; i++ {
+		offset := constants.InodeTableStart + i*constants.InodeSize
+		_, err := disk.ReadAt(buffer, offset)
+		if err != nil {
+			break
+		}
+
+		inode := DeserializeInode(buffer)
+		if inode.Size > 0 {
+			if string(inode.Filename[:bytes.IndexByte(inode.Filename[:], 0)]) == filename1 {
+				inode1 = inode
+				err = UpdateBitmap(disk, (inode1.StartBlock-constants.DataStart)/constants.BlockSize, false)
+
+				if err != nil {
+					return err
+				}
+
+				err = RemoveFile(filename1)
+				if err != nil {
+					return err
+				}
+
+			} else if string(inode.Filename[:bytes.IndexByte(inode.Filename[:], 0)]) == filename2 {
+				inode2 = inode
+
+				err = UpdateBitmap(disk, (inode2.StartBlock-constants.DataStart)/constants.BlockSize, false)
+				if err != nil {
+					return err
+				}
+
+				err = RemoveFile(filename2)
+				if err != nil {
+					return err
+				}
+			}
+		}
+	}
+
+	if inode1.Size == 0 || inode2.Size == 0 {
+		return errors.New("arquivo não encontrado")
+	}
+
+	newSize := inode1.Size + inode2.Size
+	if newSize*4 > constants.DiskSize-(inode1.StartBlock-constants.DataStart) {
+		return errors.New("espaço insuficiente no disco")
+	}
+
+	newInodeOffset, err := findFreeInode(disk)
+	if err != nil {
+		return err
+	}
+
+	newStartBlock, err := findFreeBlock(disk)
+	if err != nil {
+		return err
+	}
+
+	err = UpdateBitmap(disk, (newStartBlock-constants.DataStart)/constants.BlockSize, true)
+	if err != nil {
+		return err
+	}
+
+	var newInode Inode
+	copy(newInode.Filename[:], []byte(newFilename))
+	newInode.Size = newSize
+	newInode.StartBlock = newStartBlock
+
+	_, err = disk.WriteAt(SerializeInode(newInode), newInodeOffset)
+	if err != nil {
+		return err
+	}
+
+	data1 := make([]byte, inode1.Size*4)
+	for i := int64(0); i < inode1.Size; i++ {
+		offset := inode1.StartBlock + i*4
+		data := make([]byte, 4)
+		_, err := disk.ReadAt(data, offset)
+		if err != nil {
+			return err
+		}
+		copy(data1[i*4:], data)
+	}
+
+	data2 := make([]byte, inode2.Size*4)
+	for i := int64(0); i < inode2.Size; i++ {
+		offset := inode2.StartBlock + i*4
+		data := make([]byte, 4)
+		_, err := disk.ReadAt(data, offset)
+		if err != nil {
+			return err
+		}
+		copy(data2[i*4:], data)
+	}
+
+	newData := append(data1, data2...)
+	_, err = disk.WriteAt(newData, newStartBlock)
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func findFreeInode(disk *os.File) (int64, error) {
