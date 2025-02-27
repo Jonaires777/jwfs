@@ -1,9 +1,10 @@
 package repl
 
 import (
-	"bufio"
 	"fmt"
 	"os"
+
+	"github.com/chzyer/readline"
 
 	"github.com/Jonaires777/src/lexer"
 	"github.com/Jonaires777/src/parser"
@@ -12,16 +13,26 @@ import (
 const prompt = `jwfs>> `
 
 func Start() {
-	scanner := bufio.NewScanner(os.Stdin)
+	rl, err := readline.NewEx(&readline.Config{
+		Prompt:                 prompt,
+		HistoryFile:            "/tmp/readline.tmp",
+		DisableAutoSaveHistory: false,
+	})
+	if err != nil {
+		panic(err)
+	}
+
+	defer rl.Close()
 
 	for {
-		fmt.Print(prompt)
-		scanned := scanner.Scan()
-		if !scanned {
-			return
+		line, err := rl.Readline()
+		if err != nil {
+			break
 		}
 
-		line := scanner.Text()
+		if line == "" {
+			continue
+		}
 
 		if line == "exit" {
 			os.Exit(0)
