@@ -340,11 +340,12 @@ func OrderFile(filename string) (time.Duration, error) {
 				startTime := time.Now()
 
 				sort.Ints(intNumbers)
+
+				elapsedTime := time.Since(startTime)
+
 				for i, num := range intNumbers {
 					numbers[i] = int32(num)
 				}
-
-				elapsedTime := time.Since(startTime)
 
 				for i, num := range numbers {
 					offset := inode.StartBlock + int64(i)*4
