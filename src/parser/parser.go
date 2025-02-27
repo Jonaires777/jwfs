@@ -37,9 +37,9 @@ func (p *Parser) ParseCommand() string {
 	case token.LIST:
 		return p.parseList()
 	case token.ORDER:
-		return "ORDER command recognised"
+		return p.parseOrder()
 	case token.READ:
-		return "READ command recognised"
+		return p.parseRead()
 	case token.CONCAT:
 		return "CONCAT command recognised"
 	default:
@@ -83,7 +83,7 @@ func (p *Parser) parseList() string {
 		filesList += fmt.Sprintf("Nome: %s, Tamanho: %d\n", file.Filename, file.Size)
 	}
 
-	return fmt.Sprintf("Arquivos:\n%s\nEspaço total usado: %d, Espaço total disponível: %d", filesList, totalUsed, constants.Disksize-totalUsed)
+	return fmt.Sprintf("Arquivos:\n%s\nEspaço total usado: %d, Espaço total disponível: %d", filesList, totalUsed, constants.DiskSize-totalUsed)
 }
 
 func (p *Parser) parseRemove() string {
@@ -100,4 +100,56 @@ func (p *Parser) parseRemove() string {
 	}
 
 	return fmt.Sprintf("Arquivo '%s' removido com sucesso", filename)
+}
+
+func (p *Parser) parseRead() string {
+	p.nextToken()
+	if p.currToken.Type != token.IDENT {
+		return "Erro: esperado um nome de arquivo após read"
+	}
+
+	filename := p.currToken.Literal
+
+	p.nextToken()
+	if p.currToken.Type != token.INT {
+		return "Erro: esperado um número após o nome do arquivo"
+	}
+
+	startIdx, err := strconv.Atoi(p.currToken.Literal)
+	if err != nil {
+		return "Erro: índice inicial deve ser um número inteiro"
+	}
+
+	p.nextToken()
+	if p.currToken.Type != token.INT {
+		return "Erro: esperado um número após o índice inicial"
+	}
+
+	endIdx, err := strconv.Atoi(p.currToken.Literal)
+	if err != nil {
+		return "Erro: índice final deve ser um número inteiro"
+	}
+
+	data, err := filemanager.ReadFile(filename, int64(startIdx), int64(endIdx))
+	if err != nil {
+		return fmt.Sprintf("Erro ao ler o arquivo: %v", err)
+	}
+
+	return fmt.Sprintf("Conteúdo do arquivo '%s': %v", filename, data)
+}
+
+func (p *Parser) parseOrder() string {
+	p.nextToken()
+	if p.currToken.Type != token.IDENT {
+		return "Erro: esperado um nome de arquivo após order"
+	}
+
+	filename := p.currToken.Literal
+
+	err := filemanager.OrderFile(filename)
+	if err != nil {
+		return fmt.Sprintf("Erro ao ordenar o arquivo: %v", err)
+	}
+
+	return fmt.Sprintf("Arquivo '%s' ordenado com sucesso", filename)
 }
