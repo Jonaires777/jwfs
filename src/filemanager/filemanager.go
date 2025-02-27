@@ -303,7 +303,7 @@ func ReadFile(filename string, startIdx, endIdx int64) ([]int32, error) {
 	return nil, errors.New("arquivo não encontrado")
 }
 
-func OrderFile(filename string) (time.Duration, error) {
+func OrderFile(filename string) (int64, error) {
 	disk, err := os.OpenFile(constants.VirtualDisk, os.O_RDWR, 0666)
 	if err != nil {
 		return 0, err
@@ -341,8 +341,6 @@ func OrderFile(filename string) (time.Duration, error) {
 
 				sort.Ints(intNumbers)
 
-				elapsedTime := time.Since(startTime)
-
 				for i, num := range intNumbers {
 					numbers[i] = int32(num)
 				}
@@ -356,6 +354,8 @@ func OrderFile(filename string) (time.Duration, error) {
 						return 0, err
 					}
 				}
+
+				elapsedTime := time.Now().Sub(startTime).Milliseconds()
 
 				return elapsedTime, nil
 			}
