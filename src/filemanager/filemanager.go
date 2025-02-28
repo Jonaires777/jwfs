@@ -305,6 +305,8 @@ func ReadFile(filename string, startIdx, endIdx int64) ([]int32, error) {
 	return nil, errors.New("arquivo não encontrado")
 }
 
+// execute echo 256 | sudo tee /proc/sys/vm/nr_hugepages no sistema
+// para poder funcionar
 func allocateHugePage() ([]byte, error) {
 	// Abrir um arquivo especial para Huge Pages (necessário para mapeamento)
 	file, err := os.OpenFile("/dev/zero", os.O_RDWR, 0)
@@ -315,7 +317,7 @@ func allocateHugePage() ([]byte, error) {
 
 	// Mapear 2MB de memória usando Huge Pages
 	data, err := syscall.Mmap(int(file.Fd()), 0, constants.HugePageSize,
-		syscall.PROT_READ|syscall.PROT_WRITE, syscall.MAP_PRIVATE|syscall.MAP_HUGETLB)
+		syscall.PROT_READ|syscall.PROT_WRITE, syscall.MAP_SHARED|syscall.MAP_HUGETLB|syscall.MAP_ANONYMOUS)
 	if err != nil {
 		return nil, err
 	}
