@@ -4,9 +4,11 @@ import (
 	"bytes"
 	"encoding/binary"
 	"errors"
+	"io"
 	"math/rand"
 	"os"
 	"sort"
+	"syscall"
 	"time"
 
 	"github.com/Jonaires777/src/constants"
@@ -303,7 +305,58 @@ func ReadFile(filename string, startIdx, endIdx int64) ([]int32, error) {
 	return nil, errors.New("arquivo não encontrado")
 }
 
-func OrderFile(filename string) (int64, error) {
+func allocateHugePage() ([]byte, error) {
+	// Abrir um arquivo especial para Huge Pages (necessário para mapeamento)
+	file, err := os.OpenFile("/dev/zero", os.O_RDWR, 0)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+
+	// Mapear 2MB de memória usando Huge Pages
+	data, err := syscall.Mmap(int(file.Fd()), 0, constants.HugePageSize,
+		syscall.PROT_READ|syscall.PROT_WRITE, syscall.MAP_PRIVATE|syscall.MAP_HUGETLB)
+	if err != nil {
+		return nil, err
+	}
+
+	return data, nil
+}
+
+func createPagingFile() error {
+	file, err := os.Create(constants.PagingFile)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	// Garantir que o arquivo tenha um tamanho inicial de 2MB
+	err = file.Truncate(constants.HugePageSize)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func OrderFile(filename string) (time.Duration, error) {
+	hugePage, err := allocateHugePage()
+	if err != nil {
+		return 0, err
+	}
+	defer syscall.Munmap(hugePage)
+
+	err = createPagingFile()
+	if err != nil {
+		return 0, err
+	}
+
+	pagingFile, err := os.OpenFile(constants.PagingFile, os.O_RDWR, 0666)
+	if err != nil {
+		return 0, err
+	}
+	defer pagingFile.Close()
+
 	disk, err := os.OpenFile(constants.VirtualDisk, os.O_RDWR, 0666)
 	if err != nil {
 		return 0, err
@@ -311,58 +364,83 @@ func OrderFile(filename string) (int64, error) {
 	defer disk.Close()
 
 	buffer := make([]byte, constants.InodeSize)
+	var inode *Inode
+
+	// Buscar o inode do arquivo
 	for i := int64(0); i < constants.MaxInodes; i++ {
 		offset := constants.InodeTableStart + i*constants.InodeSize
-		_, err := disk.ReadAt(buffer, offset)
-		if err != nil {
+		n, err := disk.ReadAt(buffer, offset)
+		if err != nil && err != io.EOF {
+			return 0, err
+		}
+		if n == 0 {
 			break
 		}
 
-		inode := DeserializeInode(buffer)
-		if inode.Size > 0 {
-			if string(inode.Filename[:bytes.IndexByte(inode.Filename[:], 0)]) == filename {
-				var numbers []int32
-				for i := int64(0); i < inode.Size; i++ {
-					offset := inode.StartBlock + i*4
-					data := make([]byte, 4)
-					_, err := disk.ReadAt(data, offset)
-					if err != nil {
-						return 0, err
-					}
-					numbers = append(numbers, int32(binary.LittleEndian.Uint32(data)))
-				}
+		in := DeserializeInode(buffer)
+		if in.Size > 0 && string(in.Filename[:bytes.IndexByte(in.Filename[:], 0)]) == filename {
+			inode = &in
+			break
+		}
+	}
+	if inode == nil {
+		return 0, errors.New("arquivo não encontrado")
+	}
 
-				intNumbers := make([]int, len(numbers))
-				for i, num := range numbers {
-					intNumbers[i] = int(num)
-				}
+	startTime := time.Now()
 
-				startTime := time.Now()
+	// Ordenação Externa (Lendo blocos de 2MB por vez)
+	for i := int64(0); i < inode.Size; i += constants.HugePageSize {
+		offset := inode.StartBlock + i
 
-				sort.Ints(intNumbers)
+		bytesToRead := int64(constants.HugePageSize)
+		if inode.Size-i < bytesToRead {
+			bytesToRead = inode.Size - i
+		}
 
-				for i, num := range intNumbers {
-					numbers[i] = int32(num)
-				}
+		n, err := disk.ReadAt(hugePage[:bytesToRead], offset)
+		if err != nil && err != io.EOF {
+			return 0, err
+		}
+		if n == 0 {
+			break
+		}
 
-				for i, num := range numbers {
-					offset := inode.StartBlock + int64(i)*4
-					data := make([]byte, 4)
-					binary.LittleEndian.PutUint32(data, uint32(num))
-					_, err := disk.WriteAt(data, offset)
-					if err != nil {
-						return 0, err
-					}
-				}
+		// Ordenar os números dentro da Huge Page
+		numbers := make([]int, n/4)
+		for j := 0; j < n; j += 4 {
+			numbers[j/4] = int(binary.LittleEndian.Uint32(hugePage[j:]))
+		}
 
-				elapsedTime := time.Now().Sub(startTime).Milliseconds()
+		sort.Ints(numbers)
 
-				return elapsedTime, nil
+		pagingFile.Seek(0, 0)
+		for _, num := range numbers {
+			err := binary.Write(pagingFile, binary.LittleEndian, uint32(num))
+			if err != nil {
+				return 0, err
 			}
 		}
 	}
 
-	return 0, errors.New("arquivo não encontrado")
+	// Escrever de volta no arquivo original
+	pagingFile.Seek(0, 0)
+	for i := int64(0); i < inode.Size; i += constants.HugePageSize {
+		offset := inode.StartBlock + i
+
+		n, err := pagingFile.Read(hugePage)
+		if err != nil && err != io.EOF {
+			return 0, err
+		}
+		if n == 0 {
+			break
+		}
+
+		disk.WriteAt(hugePage[:n], offset)
+	}
+
+	elapsedTime := time.Since(startTime)
+	return elapsedTime, nil
 }
 
 func ConcatFiles(filename1, filename2, newFilename string) error {

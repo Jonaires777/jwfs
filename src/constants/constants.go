@@ -14,4 +14,6 @@ const (
 	InodeTableSize  = MaxInodes * InodeSize
 	DataStart       = InodeTableStart + InodeTableSize
 	MaxFilenameLen  = 32
+	HugePageSize    = 2 * 1024 * 1024
+	PagingFile      = "paging_file.bin"
 )
